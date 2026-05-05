@@ -29,7 +29,7 @@ jobs:
           SESSION_ID=$(echo $SESSION | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Session ID: $SESSION_ID"
 
-          # Step 3: Send trigger message to start the agent
+          # Step 3: Send trigger message with Atlassian credentials
           curl -s -X POST https://api.anthropic.com/v1/sessions/$SESSION_ID/events \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
             -H "anthropic-version: 2023-06-01" \
@@ -38,7 +38,10 @@ jobs:
             -d '{
               "events": [{
                 "type": "user.message",
-                "content": [{"type": "text", "text": "Start your run. Process all Ready for Dev cards now."}]
+                "content": [{
+                  "type": "text",
+                  "text": "Start your run. Process all Ready for Dev cards now.\n\nAtlassian credentials:\n- Domain: https://bahmni.atlassian.net\n- Email: ${{ secrets.ATLASSIAN_EMAIL }}\n- API Token: ${{ secrets.ATLASSIAN_TOKEN }}"
+                }]
               }]
             }'
 
