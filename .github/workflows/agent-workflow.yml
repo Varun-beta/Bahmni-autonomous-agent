@@ -2,7 +2,7 @@ name: Bahmni Auto PR Bot
 on:
   schedule:
     - cron: '30 3 * * 1-5'   # 9:00am IST (UTC+5:30), Mon–Fri
-  workflow_dispatch:           # also allows manual trigger
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -24,12 +24,10 @@ jobs:
             }')
 
           echo "Session response: $SESSION"
-
-          # Step 2: Extract session ID
           SESSION_ID=$(echo $SESSION | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Session ID: $SESSION_ID"
 
-          # Step 3: Send trigger message with Atlassian credentials
+          # Step 2: Send trigger message with Atlassian credentials
           curl -s -X POST https://api.anthropic.com/v1/sessions/$SESSION_ID/events \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
             -H "anthropic-version: 2023-06-01" \
@@ -45,4 +43,62 @@ jobs:
               }]
             }'
 
-          echo "Trigger message sent. Agent is now running."
+          echo "Trigger message sent. Polling for completion..."
+
+          # Step 3: Poll until session is idle (agent finished)
+          MAX_WAIT=3600  # 1 hour timeout
+          ELAPSED=0
+          POLL_INTERVAL=15
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+
+            STATUS=$(curl -s https://api.anthropic.com/v1/sessions/$SESSION_ID \
+              -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+              -H "anthropic-version: 2023-06-01" \
+              -H "anthropic-beta: managed-agents-2026-04-01" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+
+            echo "[$ELAPSED s] Session status: $STATUS"
+
+            if [ "$STATUS" = "idle" ]; then
+              echo "Agent finished. Fetching output..."
+              break
+            fi
+
+            if [ "$STATUS" = "terminated" ] || [ "$STATUS" = "error" ]; then
+              echo "Session ended with status: $STATUS"
+              break
+            fi
+          done
+
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "ERROR: Session timed out after ${MAX_WAIT}s"
+            exit 1
+          fi
+
+          # Step 4: Fetch and print the last 20 events for the log
+          echo "--- Agent Output ---"
+          curl -s "https://api.anthropic.com/v1/sessions/$SESSION_ID/events?limit=20" \
+            -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "anthropic-beta: managed-agents-2026-04-01" \
+            | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for ev in data.get('data', []):
+              t = ev.get('type', '')
+              if t == 'agent.message':
+                  for block in ev.get('content', []):
+                      if block.get('type') == 'text':
+                          print(block['text'])
+              elif t == 'session.error':
+                  print('ERROR:', ev.get('error', ev))
+          "
+
+          # Step 5: Fail the job if session ended in error
+          if [ "$STATUS" = "error" ]; then
+            echo "Session ended in error — marking job as failed."
+            exit 1
+          fi
