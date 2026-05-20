@@ -1,19 +1,16 @@
 name: Bahmni Auto PR Bot
 on:
-  repository_dispatch:
-    types: [jira-trigger]
   schedule:
-    - cron: '30 3 * * 1-5' # 9:00am IST
-  workflow_dispatch:
+    - cron: '30 3 * * 1-5'   # 9:00am IST (UTC+5:30), Mon–Fri
+  workflow_dispatch:           # also allows manual trigger
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
       - name: Start Bahmni Bot Session
-        id: agent_logic
         run: |
-          # Step 1: Create the session (Restored your IDs here)
+          # Step 1: Create the session
           SESSION=$(curl -s -X POST https://api.anthropic.com/v1/sessions \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
             -H "anthropic-version: 2023-06-01" \
@@ -23,61 +20,29 @@ jobs:
               "agent": "${{ secrets.BAHMNI_AGENT_ID }}",
               "environment_id": "${{ secrets.BAHMNI_ENV_ID }}",
               "vault_ids": ["${{ secrets.BAHMNI_VAULT_ID }}"],
-              "title": "Trigger: ${{ github.event.client_payload.issue_key || 'Scheduled Run' }}"
+              "title": "Scheduled run '"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
             }')
 
-          SESSION_ID=$(echo $SESSION | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-          
-          # Step 2: Determine Prompt logic
-          J_KEY="${{ github.event.client_payload.issue_key }}"
-          if [ -z "$J_KEY" ]; then
-            PROMPT="Start your run. Process all Ready for Dev cards now."
-          else
-            PROMPT="Start your run. Specifically process Jira issue $J_KEY now."
-          fi
+          echo "Session response: $SESSION"
 
-          # Step 3: Send trigger message to the agent
+          # Step 2: Extract session ID
+          SESSION_ID=$(echo $SESSION | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Session ID: $SESSION_ID"
+
+          # Step 3: Send trigger message with Atlassian credentials
           curl -s -X POST https://api.anthropic.com/v1/sessions/$SESSION_ID/events \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
             -H "anthropic-version: 2023-06-01" \
             -H "anthropic-beta: managed-agents-2026-04-01" \
             -H "content-type: application/json" \
-            -d "{
-              \"events\": [{
-                \"type\": \"user.message\",
-                \"content\": [{
-                  \"type\": \"text\",
-                  \"text\": \"$PROMPT\n\nAtlassian credentials:\n- Domain: https://bahmni.atlassian.net\n- Email: ${{ secrets.ATLASSIAN_EMAIL }}\n- API Token: ${{ secrets.ATLASSIAN_TOKEN }}\"
+            -d '{
+              "events": [{
+                "type": "user.message",
+                "content": [{
+                  "type": "text",
+                  "text": "Start your run. Process all Ready for Dev cards now.\n\nAtlassian credentials:\n- Domain: https://bahmni.atlassian.net\n- Email: ${{ secrets.ATLASSIAN_EMAIL }}\n- API Token: ${{ secrets.ATLASSIAN_TOKEN }}"
                 }]
               }]
-            }"
-          
-          echo "Agent is running for Issue: ${J_KEY:-All Cards}"
-
-      - name: Comment on Jira Ticket
-        # Only run this if triggered by a specific Jira issue
-        if: github.event.client_payload.issue_key != ''
-        run: |
-          ISSUE_KEY="${{ github.event.client_payload.issue_key }}"
-          AUTH=$(echo -n "${{ secrets.ATLASSIAN_EMAIL }}:${{ secrets.ATLASSIAN_TOKEN }}" | base64)
-          
-          curl -s -X POST "https://bahmni.atlassian.net/rest/api/3/issue/$ISSUE_KEY/comment" \
-            -H "Authorization: Basic $AUTH" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "body": {
-                "type": "doc",
-                "version": 1,
-                "content": [
-                  {
-                    "type": "paragraph",
-                    "content": [
-                      {
-                        "type": "text",
-                        "text": "🤖 Claude Autonomous Agent has started processing this ticket. View progress here: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                      }
-                    ]
-                  }
-                ]
-              }
             }'
+
+          echo "Trigger message sent. Agent is now running."
