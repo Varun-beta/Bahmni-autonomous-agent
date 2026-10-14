@@ -1,10 +1,11 @@
 name: Bahmni Auto PR Bot
 on:
- repository_dispatch:
-  types: [jira_card_ready]
+  repository_dispatch:
+    types: [ready-for-dev, bot-approved]
+  # schedule:
+  #   - cron: '*/15 * * * *'   # fallback safety net
   # schedule:
   #   - cron: '30 3 * * 1-5'   # 9:00am IST (UTC+5:30), Mon–Fri
-  # workflow_dispatch:           # also allows manual trigger
  workflow_dispatch:
     inputs:
       jira_id:
