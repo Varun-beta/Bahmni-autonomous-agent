@@ -12,11 +12,39 @@ on:
         description: 'Jira Issue Key (e.g. BAH-123)'
         required: true
         type: string
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
+      - name: Build trigger message
+        id: msg
+        env:
+          # repository_dispatch payload (empty on manual/scheduled runs)
+          DISPATCH_ISSUE: ${{ github.event.client_payload.issueKey }}
+          DISPATCH_EVENT: ${{ github.event.client_payload.event }}
+          # manual workflow_dispatch input (empty on dispatch/scheduled runs)
+          MANUAL_ISSUE:   ${{ github.event.inputs.jira_id }}
+        run: |
+          ISSUE_KEY="${DISPATCH_ISSUE:-$MANUAL_ISSUE}"
+          EVENT="${DISPATCH_EVENT:-manual}"
+
+          if [ -n "$ISSUE_KEY" ]; then
+            TRIGGER="Start your run. Event: $EVENT | Issue: $ISSUE_KEY. Act on this card only — read its current status and comment markers and continue from the correct point (plan, implement, or address PR comments). Skip the full board scan."
+          else
+            TRIGGER="Start your run. Process all Ready for Dev cards now."
+          fi
+
+          echo "trigger<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TRIGGER"     >> "$GITHUB_OUTPUT"
+          echo "EOF"          >> "$GITHUB_OUTPUT"
+          echo "Resolved trigger: $TRIGGER"
+
       - name: Start Bahmni Bot Session
+        env:
+          TRIGGER_TEXT:    ${{ steps.msg.outputs.trigger }}
+          ATLASSIAN_EMAIL: ${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
         run: |
           # Step 1: Create the session
           SESSION=$(curl -s -X POST https://api.anthropic.com/v1/sessions \
@@ -28,29 +56,37 @@ jobs:
               "agent": "${{ secrets.BAHMNI_AGENT_ID }}",
               "environment_id": "${{ secrets.BAHMNI_ENV_ID }}",
               "vault_ids": ["${{ secrets.BAHMNI_VAULT_ID }}"],
-              "title": "Scheduled run '"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
+              "title": "Bot run '"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
             }')
 
           echo "Session response: $SESSION"
 
           # Step 2: Extract session ID
-          SESSION_ID=$(echo $SESSION | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          SESSION_ID=$(echo "$SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Session ID: $SESSION_ID"
 
-          # Step 3: Send trigger message with Atlassian credentials
+          # Step 3: Build the full message text (trigger + Atlassian creds)
+          FULL_MSG="${TRIGGER_TEXT}
+
+          Atlassian credentials:
+          - Domain: https://bahmni.atlassian.net
+          - Email: ${ATLASSIAN_EMAIL}
+          - API Token: ${ATLASSIAN_TOKEN}"
+
+          # Step 4: Build JSON body safely with jq (handles quoting/newlines)
+          BODY=$(jq -n --arg text "$FULL_MSG" '{
+            events: [{
+              type: "user.message",
+              content: [{ type: "text", text: $text }]
+            }]
+          }')
+
+          # Step 5: Send trigger message
           curl -s -X POST https://api.anthropic.com/v1/sessions/$SESSION_ID/events \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
             -H "anthropic-version: 2023-06-01" \
             -H "anthropic-beta: managed-agents-2026-04-01" \
             -H "content-type: application/json" \
-            -d '{
-              "events": [{
-                "type": "user.message",
-                "content": [{
-                  "type": "text",
-                  "text": "Start your run. Process all Ready for Dev cards now.\n\nAtlassian credentials:\n- Domain: https://bahmni.atlassian.net\n- Email: ${{ secrets.ATLASSIAN_EMAIL }}\n- API Token: ${{ secrets.ATLASSIAN_TOKEN }}"
-                }]
-              }]
-            }'
+            -d "$BODY"
 
           echo "Trigger message sent. Agent is now running."
