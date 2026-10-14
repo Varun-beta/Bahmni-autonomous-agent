@@ -6,7 +6,7 @@ on:
   #   - cron: '*/15 * * * *'   # fallback safety net
   # schedule:
   #   - cron: '30 3 * * 1-5'   # 9:00am IST (UTC+5:30), Mon–Fri
- workflow_dispatch:
+  workflow_dispatch:
     inputs:
       jira_id:
         description: 'Jira Issue Key (e.g. BAH-123)'
