@@ -13,6 +13,13 @@ on:
         required: true
         type: string
 
+# Serialize runs that target the SAME card so two triggers (ready-for-dev /
+# bot-approved / manual) can't create duplicate branches or PRs. Runs for
+# DIFFERENT cards remain in different groups and still run in parallel.
+concurrency:
+  group: bahmni-bot-${{ github.event.client_payload.issueKey || github.event.inputs.jira_id || 'full-scan' }}
+  cancel-in-progress: false
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
