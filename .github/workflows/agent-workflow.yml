@@ -39,7 +39,7 @@ jobs:
           if [ -n "$ISSUE_KEY" ]; then
             TRIGGER="Start your run. Event: $EVENT | Issue: $ISSUE_KEY. Act on this card only — read its current status and comment markers and continue from the correct point (plan, implement, or address PR comments). Skip the full board scan."
           else
-            TRIGGER="Start your run. Process all Ready for Dev cards now."
+            TRIGGER="Start your run. Process all Ready for Development cards now."
           fi
 
           echo "trigger<<EOF" >> "$GITHUB_OUTPUT"
@@ -49,11 +49,9 @@ jobs:
 
       - name: Start Bahmni Bot Session
         env:
-          TRIGGER_TEXT:    ${{ steps.msg.outputs.trigger }}
-          ATLASSIAN_EMAIL: ${{ secrets.ATLASSIAN_EMAIL }}
-          ATLASSIAN_TOKEN: ${{ secrets.ATLASSIAN_TOKEN }}
+          TRIGGER_TEXT: ${{ steps.msg.outputs.trigger }}
         run: |
-          # Step 1: Create the session
+          # Step 1: Create the session (vault supplies Jira auth — no creds in the message)
           SESSION=$(curl -s -X POST https://api.anthropic.com/v1/sessions \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
             -H "anthropic-version: 2023-06-01" \
@@ -72,13 +70,8 @@ jobs:
           SESSION_ID=$(echo "$SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Session ID: $SESSION_ID"
 
-          # Step 3: Build the full message text (trigger + Atlassian creds)
-          FULL_MSG="${TRIGGER_TEXT}
-
-          Atlassian credentials:
-          - Domain: https://bahmni.atlassian.net
-          - Email: ${ATLASSIAN_EMAIL}
-          - API Token: ${ATLASSIAN_TOKEN}"
+          # Step 3: Build the message text — NO credentials (auth is vault-injected)
+          FULL_MSG="${TRIGGER_TEXT}"
 
           # Step 4: Build JSON body safely with jq (handles quoting/newlines)
           BODY=$(jq -n --arg text "$FULL_MSG" '{
