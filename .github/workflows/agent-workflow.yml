@@ -63,8 +63,6 @@ jobs:
               "agent": "${{ secrets.BAHMNI_AGENT_ID }}",
               "environment_id": "${{ secrets.BAHMNI_ENV_ID }}",
               "vault_ids": ["${{ secrets.BAHMNI_VAULT_ID }}"],
-              "authorization_tokens": [
-                { "host": "github.com", "token": "'"${{ secrets.GH_PUSH_TOKEN }}"'" }],
               "title": "Bot run '"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
             }')
 
