@@ -1,7 +1,7 @@
 name: Bahmni Auto PR Bot
 on:
   repository_dispatch:
-    types: [ready-for-dev, bot-approved]
+    types: [ready-for-dev, bot-approved, bot-rejected]
   # schedule:
   #   - cron: '*/15 * * * *'   # fallback safety net
   # schedule:
